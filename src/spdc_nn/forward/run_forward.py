@@ -383,11 +383,15 @@ if __name__ == "__main__":
         'pump_coefficient': 'random',
         'custom_pump_coefficient': {REAL: {3: 1., 4: 1., 5: 1.}, IMAG: {3: 1., 4: 1., 5: 1.}},
         'pump_coefficient_path': None,
+        'pump_waist': 'waist_pump0',
+        'pump_waists_path': None,
         'crystal_max_mode1': 5,
         'crystal_max_mode2': 3,
         'crystal_coefficient': 'random',
         'custom_crystal_coefficient': {REAL: {-1: 1, 0: 1, 1: 1}, IMAG: {-1: 1, 0: 1, 1: 1}},
         'crystal_coefficient_path': None,
+        'crystal_waist': 'r_scale0',
+        'crystal_waists_path': None,
         'maxZ': 1e-3,
     }
 
