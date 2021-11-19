@@ -21,7 +21,6 @@ def run_forward(
         JAX_ENABLE_X64: str = 'True',
         minimal_GPU_memory: bool = False,
         N: int = 4000,
-        bs_device: int = 2000,
         observable_vec: Tuple[Dict[Any, bool]] = None,
         tau: float = 1e-9,
         pump_basis: str = 'LG',
@@ -92,7 +91,6 @@ def run_forward(
                         but may be useful for running with the minimal possible GPU memory footprint
                         or debugging OOM failures.
     N: size of vacuum states in inference method
-    bs_device: size of vacuum states for each batch on single device, in inference method
     observable_vec: if an observable in the dictionary is True,
                         the method will infer the observable along the process
     pump_basis: Pump's construction basis method
@@ -208,10 +206,9 @@ def run_forward(
     n_devices = xla_bridge.device_count()
     print(f'Number of GPU devices: {n_devices} \n')
 
-    assert N % (bs_device * n_devices) == 0, "The number of inference examples should be " \
-                                             "divisible by the number of devices time batch size"
+    assert N % n_devices == 0, "The number of examples should be " \
+                                         "divisible by the number of devices"
     N_device  = int(N / n_devices)
-    nb_device = int(N_device / bs_device)
 
     specs = {
         'experiment name': run_name,
@@ -331,9 +328,7 @@ def run_forward(
     forward = BaseForward(
         key=key,
         N=N,
-        bs_device=bs_device,
         N_device=N_device,
-        nb_device=nb_device,
         n_devices=n_devices,
         projection_coincidence_rate=projection_coincidence_rate,
         projection_tomography_matrix=projection_tomography_matrix,
@@ -368,8 +363,7 @@ def run_forward(
 
 if __name__ == "__main__":
     simulation_params = {
-        'N': 4000,
-        'bs_device': 2000,
+        'N': 500,
         'observable_vec': {
             COINCIDENCE_RATE: True,
             DENSITY_MATRIX: False,
@@ -378,20 +372,32 @@ if __name__ == "__main__":
     }
 
     interaction_params = {
-        'pump_max_mode1': 5,
-        'pump_max_mode2': 3,
+        'pump_max_mode1': 1,
+        'pump_max_mode2': 4,
         'pump_coefficient': 'random',
-        'custom_pump_coefficient': {REAL: {3: 1., 4: 1., 5: 1.}, IMAG: {3: 1., 4: 1., 5: 1.}},
+        'custom_pump_coefficient': {REAL: {0: 1., 1: 0., 2: 0., 3: 0., 4: 1., 5: 0., 6: 1., 7: 0., 8: 0.},
+                                    IMAG: {0: 0., 1: 0., 2: 0.}},
         'pump_coefficient_path': None,
         'pump_waist': 'waist_pump0',
         'pump_waists_path': None,
-        'crystal_max_mode1': 5,
-        'crystal_max_mode2': 3,
+        'crystal_basis': None,
+        'crystal_max_mode1': None,
+        'crystal_max_mode2': None,
         'crystal_coefficient': 'random',
         'custom_crystal_coefficient': {REAL: {-1: 1, 0: 1, 1: 1}, IMAG: {-1: 1, 0: 1, 1: 1}},
         'crystal_coefficient_path': None,
         'crystal_waist': 'r_scale0',
         'crystal_waists_path': None,
+        'lam_pump': 405e-9,
+        'crystal_str': 'ktp',
+        'power_pump': 1e-3,
+        'waist_pump0': 40e-6,
+        'r_scale0': 40e-6,
+        'dx': 4e-6,
+        'dy': 4e-6,
+        'dz': 10e-6,
+        'maxX': 120e-6,
+        'maxY': 120e-6,
         'maxZ': 1e-3,
     }
 
@@ -402,11 +408,11 @@ if __name__ == "__main__":
     }
 
     run_forward(
-        run_name='test2',
+        run_name='test4',
         seed=42,
         JAX_ENABLE_X64='True',
         minimal_GPU_memory=False,
-        CUDA_VISIBLE_DEVICES='4, 6',
+        CUDA_VISIBLE_DEVICES='2',
         **simulation_params,
         **interaction_params,
         **projection_params,

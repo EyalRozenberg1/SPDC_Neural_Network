@@ -3,6 +3,7 @@ from abc import ABC
 from typing import Dict, Optional, Tuple, Any
 from jax import pmap
 from jax import numpy as np
+from jax.lax import stop_gradient
 from spdc_nn.utils.utils import Crystal_hologram, Beam_profile
 from spdc_nn.models.spdc_model import SPDCmodel
 from spdc_nn.utils.defaults import COINCIDENCE_RATE, DENSITY_MATRIX, TOMOGRAPHY_MATRIX
@@ -17,9 +18,7 @@ class BaseForward(ABC):
             self,
             key: np.array,
             N: int,
-            bs_device: int,
             N_device: int,
-            nb_device: int,
             n_devices: int,
             projection_coincidence_rate,
             projection_tomography_matrix,
@@ -33,9 +32,7 @@ class BaseForward(ABC):
         self.key       = key
         self.n_devices = n_devices
         self.N         = N
-        self.bs_device = bs_device
         self.N_device  = N_device
-        self.nb_device = nb_device
         self.delta_k   = pump.k - signal.k - idler.k  # phase mismatch
         self.Nx        = interaction.Nx
         self.Ny        = interaction.Ny
@@ -126,12 +123,11 @@ class BaseForward(ABC):
     def inference(self):
         self.model.N           = self.N
         self.model.N_device    = self.N_device
-        self.model.nb_device   = self.nb_device
-        self.model.bs          = self.bs_device
 
         # seed vacuum samples for each gpu
         self.key, subkey = random.split(self.key)
         keys = random.split(subkey, self.n_devices)
-        observables = pmap(self.model.forward, axis_name='device')(self.model_parameters, keys)
+        observables = pmap(self.model.forward, axis_name='device')(stop_gradient(self.model_parameters), keys)
+
         return observables
 

@@ -1,3 +1,4 @@
+import sys
 from abc import ABC
 from jax import numpy as np
 from jax import lax
@@ -205,7 +206,7 @@ class Projection_tomography_matrix(ABC):
                     self.tomography_quantum_state
                 )
 
-
+@jit
 def project(projection_basis, beam_profile):
     """
     The function projects some state beam_profile onto given projection_basis
@@ -227,7 +228,7 @@ def project(projection_basis, beam_profile):
     projection     = projection / np.sqrt(normalization1[None, :] * normalization2[:, None])
     return projection
 
-
+@jit
 def decompose(beam_profile, projection_basis_arr):
     """
     Decompose a given beam profile into modes defined in the dictionary
@@ -243,7 +244,7 @@ def decompose(beam_profile, projection_basis_arr):
     projection = project(projection_basis_arr[:, None], beam_profile)
     return np.transpose(projection)
 
-
+@jit
 def fix_power(decomposed_profile, beam_profile):
     """
     Normalize power and ignore higher modes
@@ -262,8 +263,8 @@ def fix_power(decomposed_profile, beam_profile):
 
     return decomposed_profile * scale[:, None, None]
 
-
-def kron(a, b, multiple_devices: bool = True):
+@jit
+def kron(a, b, multiple_devices: bool = False):
     """
     Calculates the kronecker product between two 2d tensors
     Parameters
@@ -283,25 +284,24 @@ def kron(a, b, multiple_devices: bool = True):
 
 
 @jit
-def projection_matrices_calc(a, b, c, N, multiple_devices: bool = False):
+def projection_matrices_calc(a, b, c, N):
     """
 
     Parameters
     ----------
     a, b, c: the interacting fields
     N: Total number of interacting vacuum state elements
-    multiple_devices: (True/False) whether multiple devices are used
 
     Returns the projective matrices
     -------
 
     """
-    G1_ss        = kron(np.conj(a), a, multiple_devices) / N
-    G1_ii        = kron(np.conj(b), b, multiple_devices) / N
-    G1_si        = kron(np.conj(b), a, multiple_devices) / N
-    G1_si_dagger = kron(np.conj(a), b, multiple_devices) / N
-    Q_si         = kron(c, a, multiple_devices) / N
-    Q_si_dagger  = kron(np.conj(a), np.conj(c), multiple_devices) / N
+    G1_ss        = kron(np.conj(a), a) / N
+    G1_ii        = kron(np.conj(b), b) / N
+    G1_si        = kron(np.conj(b), a) / N
+    G1_si_dagger = kron(np.conj(a), b) / N
+    Q_si         = kron(c, a) / N
+    Q_si_dagger  = kron(np.conj(a), np.conj(c)) / N
 
     return G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger
 
@@ -324,4 +324,3 @@ def projection_matrix_calc(G1_ss, G1_ii, G1_si, G1_si_dagger, Q_si, Q_si_dagger)
             lax.psum(G1_si_dagger, 'device') *
             lax.psum(G1_si, 'device')
             ).real
-

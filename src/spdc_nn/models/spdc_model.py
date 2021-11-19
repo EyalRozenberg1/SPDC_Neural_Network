@@ -1,12 +1,12 @@
 from abc import ABC
+import sys
 import jax.random as random
 import jax.numpy as np
-import sys
 import operator
 from spdc_nn.models.utils import Field
 from spdc_nn.models.utils import crystal_prop, propagate
-from spdc_nn.forward.utils import projection_matrix_calc, projection_matrices_calc, decompose, fix_power
-from spdc_nn.utils.defaults import QUBIT, QUTRIT
+from spdc_nn.forward.utils import projection_matrix_calc, projection_matrices_calc, \
+    decompose, fix_power
 
 
 class SPDCmodel(ABC):
@@ -46,8 +46,6 @@ class SPDCmodel(ABC):
         self.tomography_matrix_observable = tomography_matrix_observable
         self.N = None
         self.N_device = None
-        self.nb_device = None
-        self.bs = None
 
         self.signal_f = Field(signal, interaction.dx, interaction.dy, interaction.maxZ)
         self.idler_f = Field(idler, interaction.dx, interaction.dy, interaction.maxZ)
@@ -68,110 +66,73 @@ class SPDCmodel(ABC):
         if self.crystal_hologram is not None:
             self.crystal_hologram.create_profile(crystal_coeffs_real, crystal_coeffs_imag, r_scale)
 
-        coincidence_rate_projections, tomography_matrix_projections = self.projections_init()
+        rand_key, subkey = random.split(rand_key)
+        # initialize the vacuum and interaction fields
+        vacuum_states = random.normal(
+            subkey,
+            (self.N_device, 2, 2, self.interaction.Nx, self.interaction.Ny)
+        )
+        signal_out, \
+        idler_out, \
+        idler_vac \
+            = crystal_prop(self.pump_structure.E,
+                           self.pump,
+                           self.signal_f,
+                           self.idler_f,
+                           vacuum_states,
+                           self.interaction,
+                           self.poling_period,
+                           self.N_device,
+                           None if self.crystal_hologram is None else self.crystal_hologram.crystal_profile,
+                           infer=True,
+                           signal_init=None,
+                           idler_init=None
+                           )
 
-        for _ in np.arange(self.nb_device):
+        # Propagate generated fields back to the middle of the crystal
+        signal_out_back_prop = propagate(signal_out,
+                               self.interaction.x,
+                               self.interaction.y,
+                               self.signal_f.k,
+                               self.DeltaZ
+                               ) * np.exp(-1j * self.signal_f.k * self.DeltaZ)
 
-            rand_key, subkey = random.split(rand_key)
-            # initialize the vacuum and interaction fields
-            vacuum_states = random.normal(
-                subkey,
-                (self.bs, 2, 2, self.interaction.Nx, self.interaction.Ny)
+        idler_out_back_prop = propagate(idler_out,
+                              self.interaction.x,
+                              self.interaction.y,
+                              self.idler_f.k,
+                              self.DeltaZ
+                              ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
+
+        idler_vac_back_prop = propagate(idler_vac,
+                              self.interaction.x,
+                              self.interaction.y,
+                              self.idler_f.k,
+                              self.DeltaZ
+                              ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
+
+        coincidence_rate_projections, tomography_matrix_projections = \
+            self.get_1st_order_projections(
+                signal_out,
+                idler_out,
+                idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
             )
-            signal_out, \
-            idler_out, \
-            idler_vac \
-                = crystal_prop(self.pump_structure.E,
-                               self.pump,
-                               self.signal_f,
-                               self.idler_f,
-                               vacuum_states,
-                               self.interaction,
-                               self.poling_period,
-                               self.bs,
-                               None if self.crystal_hologram is None else self.crystal_hologram.crystal_profile,
-                               infer=True,
-                               signal_init=None,
-                               idler_init=None
-                               )
-
-            # Propagate generated fields back to the middle of the crystal
-            signal_out = propagate(signal_out,
-                                   self.interaction.x,
-                                   self.interaction.y,
-                                   self.signal_f.k,
-                                   self.DeltaZ
-                                   ) * np.exp(-1j * self.signal_f.k * self.DeltaZ)
-
-            idler_out = propagate(idler_out,
-                                  self.interaction.x,
-                                  self.interaction.y,
-                                  self.idler_f.k,
-                                  self.DeltaZ
-                                  ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
-
-            idler_vac = propagate(idler_vac,
-                                  self.interaction.x,
-                                  self.interaction.y,
-                                  self.idler_f.k,
-                                  self.DeltaZ
-                                  ) * np.exp(-1j * self.idler_f.k * self.DeltaZ)
-
-            coincidence_rate_projections_, tomography_matrix_projections_ = \
-                self.get_1st_order_projections(
-                    signal_out,
-                    idler_out,
-                    idler_vac,
-                )
-
-            if self.coincidence_rate_observable:
-                coincidence_rate_projections = tuple(map(
-                    operator.add, coincidence_rate_projections, coincidence_rate_projections_))
-
-            if self.tomography_matrix_observable or self.density_matrix_observable:
-                tomography_matrix_projections = tuple(map(
-                    operator.add, tomography_matrix_projections, tomography_matrix_projections_))
 
         observables = self.get_observables(coincidence_rate_projections, tomography_matrix_projections)
 
         return observables
 
-    def projections_init(self):
-
-        coincidence_rate_projections_init, tomography_matrix_projections_init = None, None
-        if self.coincidence_rate_observable:
-            g_cr = np.zeros((self.projection_coincidence_rate.projection_n_modes1,
-                             self.projection_coincidence_rate.projection_n_modes1,
-                             self.projection_coincidence_rate.projection_n_modes2,
-                             self.projection_coincidence_rate.projection_n_modes2), dtype=np.complex64)
-
-            coincidence_rate_projections_init = (g_cr,
-                                                 np.zeros_like(g_cr),
-                                                 np.zeros_like(g_cr),
-                                                 np.zeros_like(g_cr),
-                                                 np.zeros_like(g_cr),
-                                                 np.zeros_like(g_cr))
-
-        if self.tomography_matrix_observable or self.density_matrix_observable:
-            g_tm = np.zeros((self.projection_tomography_matrix.projection_n_state1,
-                             self.projection_tomography_matrix.projection_n_state1,
-                             self.projection_tomography_matrix.projection_n_state2,
-                             self.projection_tomography_matrix.projection_n_state2), dtype=np.complex64)
-
-            tomography_matrix_projections_init = (g_tm,
-                                                  np.zeros_like(g_tm),
-                                                  np.zeros_like(g_tm),
-                                                  np.zeros_like(g_tm),
-                                                  np.zeros_like(g_tm),
-                                                  np.zeros_like(g_tm))
-
-        return coincidence_rate_projections_init, tomography_matrix_projections_init
-
     def get_1st_order_projections(
             self,
             signal_out,
             idler_out,
-            idler_vac
+            idler_vac,
+            signal_out_back_prop,
+            idler_out_back_prop,
+            idler_vac_back_prop,
     ):
         """
         the function calculates first order correlation functions.
@@ -194,6 +155,9 @@ class SPDCmodel(ABC):
                 signal_out,
                 idler_out,
                 idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
                 self.projection_coincidence_rate.basis_arr,
                 self.projection_coincidence_rate.projection_n_modes1,
                 self.projection_coincidence_rate.projection_n_modes2
@@ -204,6 +168,9 @@ class SPDCmodel(ABC):
                 signal_out,
                 idler_out,
                 idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
                 self.projection_tomography_matrix.basis_arr,
                 self.projection_tomography_matrix.projection_n_state1,
                 self.projection_tomography_matrix.projection_n_state2
@@ -216,6 +183,9 @@ class SPDCmodel(ABC):
             signal_out,
             idler_out,
             idler_vac,
+            signal_out_back_prop,
+            idler_out_back_prop,
+            idler_vac_back_prop,
             basis_arr,
             projection_n_1,
             projection_n_2
@@ -229,6 +199,9 @@ class SPDCmodel(ABC):
         signal_out
         idler_out
         idler_vac
+        signal_out_back_prop
+        idler_out_back_prop
+        idler_vac_back_prop
         basis_arr
         projection_n_1
         projection_n_2
@@ -243,6 +216,9 @@ class SPDCmodel(ABC):
                 signal_out,
                 idler_out,
                 idler_vac,
+                signal_out_back_prop,
+                idler_out_back_prop,
+                idler_vac_back_prop,
                 basis_arr,
                 projection_n_1,
                 projection_n_2
@@ -262,32 +238,35 @@ class SPDCmodel(ABC):
             signal_out,
             idler_out,
             idler_vac,
+            signal_out_back_prop,
+            idler_out_back_prop,
+            idler_vac_back_prop,
             basis_arr,
             projection_n_1,
             projection_n_2
     ):
 
         signal_beam_decompose = decompose(
-            signal_out,
+            signal_out_back_prop,
             basis_arr
         ).reshape(
-            self.bs,
+            self.N_device,
             projection_n_1,
             projection_n_2)
 
         idler_beam_decompose = decompose(
-            idler_out,
+            idler_out_back_prop,
             basis_arr
         ).reshape(
-            self.bs,
+            self.N_device,
             projection_n_1,
             projection_n_2)
 
         idler_vac_decompose = decompose(
-            idler_vac,
+            idler_vac_back_prop,
             basis_arr
         ).reshape(
-            self.bs,
+            self.N_device,
             projection_n_1,
             projection_n_2)
 
@@ -322,25 +301,7 @@ class SPDCmodel(ABC):
                 self.projection_tomography_matrix.projection_n_state2 ** 2)
 
             if self.density_matrix_observable:
-                density_matrix = self.get_density_matrix(tomography_matrix)
+                sys.exit(f'density matrix observable is not available')
 
         return coincidence_rate, density_matrix, tomography_matrix
 
-    def get_density_matrix(
-            self,
-            tomography_matrix
-    ):
-        density_matrix = None
-        if self.projection_tomography_matrix.tomography_quantum_state is QUBIT:
-            sys.exit(f'density matrix observable is not available for {QUBIT} state')
-
-        else:
-            sys.exit(f'density matrix observable is not available for {QUTRIT} state')
-        # tomography_qutrit(
-        #     tomography_matrix.reshape(
-        #         self.projection_tomography_matrix.projection_n_state2,
-        #         self.projection_tomography_matrix.projection_n_state2),
-        #     space_size,
-        #     self.projection_tomography_matrix.projection_n_state2
-        # )
-        return density_matrix
