@@ -127,7 +127,7 @@ class BaseForward(ABC):
         # seed vacuum samples for each gpu
         self.key, subkey = random.split(self.key)
         keys = random.split(subkey, self.n_devices)
-        observables = pmap(self.model.forward, axis_name='device')(stop_gradient(self.model_parameters), keys)
+        observables, signal_kappa, idler_kappa = pmap(self.model.forward, axis_name='device')(stop_gradient(self.model_parameters), keys)
 
-        return observables
+        return observables, signal_kappa, idler_kappa
 

@@ -104,7 +104,7 @@ def crystal_prop(
     idler_vac = idler_field.vac * (vacuum_states[:, 1, 0] + 1j * vacuum_states[:, 1, 1]) / np.sqrt(2)
 
     for z in interaction.z:
-        signal_out, signal_vac, idler_out, idler_vac = propagate_dz(
+        signal_out, signal_vac, idler_out, idler_vac, PP, E_pump = propagate_dz(
             pump_profile,
             x,
             y,
@@ -125,7 +125,9 @@ def crystal_prop(
             infer,
         )
 
-    return signal_out, idler_out, idler_vac
+    signal_kappa = signal_field.kappa * interaction.d33 * PP * E_pump * np.exp(1j * pump.k * z)
+    idler_kappa = idler_field.kappa * interaction.d33 * PP * E_pump * np.exp(1j * pump.k * z)
+    return signal_out, idler_out, idler_vac, signal_kappa, idler_kappa
 
 @jit
 def propagate_dz(
@@ -204,7 +206,7 @@ def propagate_dz(
     idler_out = propagate(idler_out, x, y, idler_field_k, dz) * np.exp(-1j * idler_field_k * dz)
     idler_vac = propagate(idler_vac, x, y, idler_field_k, dz) * np.exp(-1j * idler_field_k * dz)
 
-    return signal_out, signal_vac, idler_out, idler_vac
+    return signal_out, signal_vac, idler_out, idler_vac, PP, E_pump
 
 
 @jit

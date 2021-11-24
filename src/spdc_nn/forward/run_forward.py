@@ -12,6 +12,7 @@ from spdc_nn.data.interaction import Interaction
 from spdc_nn.forward.utils import Projection_coincidence_rate, Projection_tomography_matrix
 from spdc_nn.forward.results_and_stats_utils import save_results
 from spdc_nn.forward.base_forward import BaseForward
+import numpy as np
 
 
 def run_forward(
@@ -73,7 +74,8 @@ def run_forward(
         tomography_projection_polarization: str = 'y',
         tomography_projection_z: float = 0.,
         tomography_relative_phase: List[Union[Union[int, float], Any]] = None,
-        tomography_quantum_state: str = 'qubit'
+        tomography_quantum_state: str = 'qubit',
+        key = None
 
 ):
     """
@@ -201,14 +203,15 @@ def run_forward(
 
     if not seed:
         seed = random.randint(0, 2 ** 31)
-    key = jax.random.PRNGKey(seed)
+    if key is None:
+        key = jax.random.PRNGKey(seed)
 
     n_devices = xla_bridge.device_count()
     print(f'Number of GPU devices: {n_devices} \n')
 
     assert N % n_devices == 0, "The number of examples should be " \
-                                         "divisible by the number of devices"
-    N_device  = int(N / n_devices)
+                               "divisible by the number of devices"
+    N_device = int(N / n_devices)
 
     specs = {
         'experiment name': run_name,
@@ -229,7 +232,7 @@ def run_forward(
         shutil.rmtree(logs_dir)
     os.makedirs(logs_dir, exist_ok=True)
 
-    key, interaction_key = jax.random.split(key)
+    _, interaction_key = jax.random.split(key)
     interaction = Interaction(
         pump_basis=pump_basis,
         pump_max_mode1=pump_max_mode1,
@@ -336,34 +339,44 @@ def run_forward(
         pump=Pump,
         signal=Signal,
         idler=Idler,
-        observable_vec=observable_vec,)
-
+        observable_vec=observable_vec, )
 
     start_time = time.time()
-    observables = forward.inference()
+    observables, signal_kappa, idler_kappa = forward.inference()
+    pump_coeffs = np.concatenate(
+        (np.expand_dims(np.array(forward.pump_coeffs_real), 0), np.expand_dims(np.array(forward.pump_coeffs_imag), 0)),
+        axis=0)
+    # without zero for crystal
+    # crystal_coeffs = np.concatenate((np.expand_dims(np.array(forward.crystal_coeffs_real), 0),
+    #                                  np.expand_dims(np.array(forward.crystal_coeffs_imag), 0)), axis=0)
+    crystal_coeffs = np.zeros_like(pump_coeffs)
+    pump_crystal = np.concatenate((np.expand_dims(pump_coeffs, 0), np.expand_dims(crystal_coeffs, 0)), axis=0)
+    idler_signal_coeffs = np.concatenate((idler_kappa, signal_kappa), axis=1).squeeze()
+
     total_time = (time.time() - start_time)
     print("inference is done after: %s seconds" % total_time)
 
-    save_results(
-        run_name,
-        observable_vec,
-        observables,
-        projection_coincidence_rate,
-        projection_tomography_matrix,
-        Signal,
-        Idler,
-    )
+    return observables[0][0], idler_signal_coeffs, pump_crystal, interaction.key
+    # save_results(
+    #     run_name,
+    #     observable_vec,
+    #     observables,
+    #     projection_coincidence_rate,
+    #     projection_tomography_matrix,
+    #     Signal,
+    #     Idler,
+    # )
 
-    specs_file = os.path.join(logs_dir, 'data_specs.txt')
-    with open(specs_file, 'w') as f:
-        f.write(f"running time: {total_time} sec\n")
-        for k, v in specs.items():
-            f.write(f"{k}: {str(v)}\n")
+    # specs_file = os.path.join(logs_dir, 'data_specs.txt')
+    # with open(specs_file, 'w') as f:
+    #     f.write(f"running time: {total_time} sec\n")
+    #     for k, v in specs.items():
+    #         f.write(f"{k}: {str(v)}\n")
 
 
 if __name__ == "__main__":
     simulation_params = {
-        'N': 500,
+        'N': 100,
         'observable_vec': {
             COINCIDENCE_RATE: True,
             DENSITY_MATRIX: False,
@@ -373,7 +386,7 @@ if __name__ == "__main__":
 
     interaction_params = {
         'pump_max_mode1': 1,
-        'pump_max_mode2': 4,
+        'pump_max_mode2': 3,
         'pump_coefficient': 'random',
         'custom_pump_coefficient': {REAL: {0: 1., 1: 0., 2: 0., 3: 0., 4: 1., 5: 0., 6: 1., 7: 0., 8: 0.},
                                     IMAG: {0: 0., 1: 0., 2: 0.}},
@@ -396,8 +409,8 @@ if __name__ == "__main__":
         'dx': 4e-6,
         'dy': 4e-6,
         'dz': 10e-6,
-        'maxX': 120e-6,
-        'maxY': 120e-6,
+        'maxX': 160e-6,
+        'maxY': 160e-6,
         'maxZ': 1e-3,
     }
 
@@ -407,13 +420,33 @@ if __name__ == "__main__":
         'coincidence_projection_max_mode2': 4,
     }
 
-    run_forward(
-        run_name='test4',
-        seed=42,
-        JAX_ENABLE_X64='True',
-        minimal_GPU_memory=False,
-        CUDA_VISIBLE_DEVICES='2',
-        **simulation_params,
-        **interaction_params,
-        **projection_params,
-    )
+    key = None
+    for i in range(1000):
+        coincidence_rate, idler_signal_coeffs, pump_crystal, key = run_forward(
+        # run_forward(
+            run_name=f'test{i}',
+            # seed=4,
+            seed=42,
+            JAX_ENABLE_X64='True',
+            minimal_GPU_memory=False,
+            CUDA_VISIBLE_DEVICES='0',
+            **simulation_params,
+            **interaction_params,
+            **projection_params,
+            key=key
+        )
+        coincidence_rate = coincidence_rate / np.sum(np.abs(coincidence_rate))
+        if i == 0:
+            concat_coincidence_rate = coincidence_rate
+            concat_idler_signal_coeffs = np.expand_dims(idler_signal_coeffs, 0)
+            concat_pump_crystal = np.expand_dims(pump_crystal, 0)
+        else:
+            concat_coincidence_rate = np.concatenate((concat_coincidence_rate, coincidence_rate), axis=0)
+            concat_idler_signal_coeffs = np.concatenate(
+                (concat_idler_signal_coeffs, np.expand_dims(idler_signal_coeffs, 0)), axis=0)
+            concat_pump_crystal = np.concatenate((concat_pump_crystal, np.expand_dims(pump_crystal, 0)), axis=0)
+        print(f'current_run: {i}')
+
+    np.save('coincidence_rate_new_all_zero_except_pump.npy', concat_coincidence_rate)
+    np.save('idler_signal_coeffs_new_all_zero_except_pump.npy', concat_idler_signal_coeffs)
+    np.save('pump_crystal_coeffs_new_all_zero_except_pump.npy', concat_pump_crystal)

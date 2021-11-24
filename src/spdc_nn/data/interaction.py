@@ -231,7 +231,8 @@ class Interaction(ABC):
             self.key, pump_coeff_key = random.split(self.key)
             rand_real, rand_imag = random.split(pump_coeff_key)
             coeffs_real = random.normal(rand_real, (self.pump_n_modes,))
-            coeffs_imag = random.normal(rand_imag, (self.pump_n_modes,))
+            # coeffs_imag = random.normal(rand_imag, (self.pump_n_modes,))
+            coeffs_imag = np.zeros(self.pump_n_modes, dtype=np.float32)
 
         elif self.pump_coefficient == "custom":
             assert self.custom_pump_coefficient, 'for custom method, pump basis coefficients and ' \
@@ -271,7 +272,6 @@ class Interaction(ABC):
 
         return coeffs_real, coeffs_imag
 
-
     def pump_waists(
             self,
     ):
@@ -288,7 +288,6 @@ class Interaction(ABC):
             assert "ERROR: incompatible pump basis waists"
 
         return waist_pump
-
 
     def crystal_coefficients(
             self,
@@ -316,8 +315,8 @@ class Interaction(ABC):
                 assert type(index) is int, f'index {index} must be int type'
                 assert type(coeff) is float, f'coeff {coeff} must be float type'
                 assert index < self.crystal_n_modes, 'index for custom crystal (real) initialization must be smaller ' \
-                                                  'than total number of modes.' \
-                                                  f'Got index {index} for total number of modes {self.crystal_n_modes}'
+                                                     'than total number of modes.' \
+                                                     f'Got index {index} for total number of modes {self.crystal_n_modes}'
                 coeffs_real = index_update(coeffs_real, index, coeff)
 
             for index, coeff in self.custom_crystal_coefficient[IMAG].items():
@@ -343,7 +342,6 @@ class Interaction(ABC):
         coeffs_imag = coeffs_imag / normalization
 
         return coeffs_real, coeffs_imag
-
 
     def crystal_waists(
             self,

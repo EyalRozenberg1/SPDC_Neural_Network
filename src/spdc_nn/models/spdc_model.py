@@ -74,7 +74,9 @@ class SPDCmodel(ABC):
         )
         signal_out, \
         idler_out, \
-        idler_vac \
+        idler_vac, \
+        signal_kappa, \
+        idler_kappa \
             = crystal_prop(self.pump_structure.E,
                            self.pump,
                            self.signal_f,
@@ -123,7 +125,7 @@ class SPDCmodel(ABC):
 
         observables = self.get_observables(coincidence_rate_projections, tomography_matrix_projections)
 
-        return observables
+        return observables, signal_kappa, idler_kappa
 
     def get_1st_order_projections(
             self,
